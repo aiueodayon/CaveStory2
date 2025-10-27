@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <title>Cave Story Web</title>
+    <meta name="description" content="Cave Story (Doukutsu Monogatari) - 100% playable in your browser!">
+    <meta content="https://vinmannie.github.io/CaveStory/" property="og:url" />
+    <meta content="https://vinmannie.github.io/CaveStory/cavestory.png" property="og:image" />
+    <meta name="theme-color" content="#6f9cd6" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Pixel-style font -->
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background: linear-gradient(180deg, #0a0a0a 0%, #1a1a1a 100%);
+        color: #eee;
+        font-family: 'Press Start 2P', monospace;
+        text-align: center;
+      }
+
+      h1, h4 {
+        margin: 0.5em 0;
+        text-shadow: 2px 2px 0 #000;
+      }
+
+      h1 { color: #6f9cd6; font-size: 1.6em; }
+      h4 { color: #aaa; font-size: 0.9em; }
+
+      .spinner {
+        height: 50px;
+        width: 50px;
+        margin: 20px auto;
+        animation: rotation 0.8s linear infinite;
+        border: 10px solid #0996f0;
+        border-top-color: #6400c8;
+        border-radius: 50%;
+      }
+
+      @keyframes rotation {
+        from {transform: rotate(0deg);}
+        to {transform: rotate(360deg);}
+      }
+
+      .emscripten {
+        display: block;
+        margin: 0 auto;
+      }
+
+      canvas.emscripten {
+        border: 2px solid #333;
+        background-color: black;
+        image-rendering: pixelated;
+        box-shadow: 0 0 15px rgba(255,255,255,0.1);
+        max-width: 95vw;
+      }
+
+      button {
+        background-color: #6f9cd6;
+        border: none;
+        color: white;
+        font-family: 'Press Start 2P', monospace;
+        padding: 10px 20px;
+        margin: 20px 0;
+        border-radius: 8px;
+        cursor: pointer;
+        box-shadow: 0 0 8px #6f9cd6;
+        transition: all 0.2s;
+      }
+
+      button:hover {
+        transform: scale(1.05);
+        box-shadow: 0 0 15px #9dc9ff;
+      }
+
+      .content {
+        max-width: 700px;
+        margin: 2em auto;
+        font-size: 0.7em;
+        line-height: 1.6em;
+        color: #ccc;
+      }
+
+      hr {
+        width: 60%;
+        border: 0;
+        height: 1px;
+        background: #333;
+        margin: 2em auto;
+      }
+
+      @media screen and (max-width: 600px) {
+        h1 { font-size: 1.2em; }
+        h4 { font-size: 0.8em; }
+        button { font-size: 0.6em; padding: 8px 15px; }
+        .content { font-size: 0.6em; padding: 0 1em; }
+      }
+    </style>
+  </head>
+
+  <body>
+    <h1><u>Cave Story</u></h1>
+    <h4>Doukutsu Monogatari</h4>
+
+    <div id="spinner" class="spinner"></div>
+    <div class="emscripten" id="status">Downloading...</div>
+    <progress id="progress" value="0" max="100" hidden></progress>
+
+    <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()"></canvas>
+    
+    <button onclick="goFullScreen()">Go Fullscreen</button>
+
+    <hr>
+
+    <div class="content">
+      <strong>This is a modification/archive of <br>sonicresearch.org/clownacy/cave.html.</strong>
+      <p>
+        This version adds a fullscreen option and ensures compatibility
+        with modern browsers and network filters. Original port by Clownacy.
+      </p>
+    </div>
+
+    <script>
+      function goFullScreen() {
+        const canvas = document.getElementById("canvas");
+        if (canvas.requestFullscreen) canvas.requestFullscreen();
+        else if (canvas.webkitRequestFullscreen) canvas.webkitRequestFullscreen();
+        else if (canvas.mozRequestFullScreen) canvas.mozRequestFullScreen();
+      }
+
+      const statusElement = document.getElementById('status');
+      const progressElement = document.getElementById('progress');
+      const spinnerElement = document.getElementById('spinner');
+
+      var Module = {
+        preRun: [],
+        postRun: [],
+        print: (function() {
+          return function(text) { console.log(text); };
+        })(),
+        printErr: function(text) { console.error(text); },
+        canvas: (function() {
+          var canvas = document.getElementById('canvas');
+          canvas.addEventListener("webglcontextlost", function(e) {
+            alert('WebGL context lost. Please reload the page.');
+            e.preventDefault();
+          }, false);
+          return canvas;
+        })(),
+        setStatus: function(text) {
+          if (!text) spinnerElement.style.display = 'none';
+          statusElement.textContent = text;
+        }
+      };
+
+      Module.setStatus('Downloading...');
+
+      // Work-around chromium autoplay policy
+      function resumeAudio() {
+        if (Module?.SDL2?.audioContext?.state === 'suspended') {
+          Module.SDL2.audioContext.resume();
+        }
+      }
+      document.getElementById('canvas').addEventListener('click', resumeAudio);
+      document.addEventListener('keydown', resumeAudio);
+    </script>
+
+    <script async src="CSE2.js"></script>
+  </body>
+</html>
