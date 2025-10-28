@@ -64,7 +64,7 @@
         color: white;
         font-family: 'Press Start 2P', monospace;
         padding: 10px 20px;
-        margin: 20px 0;
+        margin: 20px 5px;
         border-radius: 8px;
         cursor: pointer;
         box-shadow: 0 0 8px #6f9cd6;
@@ -118,20 +118,23 @@
     <h4>Doukutsu Monogatari</h4>
 
     <div id="spinner" class="spinner"></div>
-    <div class="emscripten" id="status">Downloading...</div>
+    <div class="emscripten" id="status">Waiting for WASM...</div>
     <progress id="progress" value="0" max="100" hidden></progress>
 
     <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()"></canvas>
     
     <div class="drop-instructions" id="dropInstructions">
       Drop a CSE2.wasm file onto this page (or use "Load WASM" button) to start.<br>
-      This allows you to remove the .wasm file from the repo and run a local copy instead.
+      Save data is persisted in the browser (IndexedDB). You can also download/upload save files below.
     </div>
 
     <button id="chooseWasmBtn">Load WASM file</button>
     <button onclick="goFullScreen()">Go Fullscreen</button>
+    <button id="downloadSaveBtn">Download Save</button>
+    <button id="clearSaveBtn">Clear Saved Data</button>
 
     <input type="file" id="wasmFileInput" accept=".wasm" style="display:none" />
+    <input type="file" id="importSaveInput" accept="*" style="display:none" />
 
     <hr>
 
@@ -152,12 +155,25 @@
       }
 
       const statusElement = document.getElementById('status');
-      const progressElement = document.getElementById('progress');
       const spinnerElement = document.getElementById('spinner');
 
       // Prepare Module early so CSE2.js can pick up Module.wasmBinary if provided.
       var Module = {
-        preRun: [],
+        preRun: [
+          function() {
+            // Mount IDBFS at /persistent and load existing saves into FS
+            try {
+              if (typeof FS !== 'undefined' && typeof IDBFS !== 'undefined') {
+                // If FS already exists (unlikely here), mount later in onRuntimeInitialized;
+              } else {
+                // We will mount when FS exists (post CSE2.js load), but to be safe,
+                // set a flag and do the mount when FS is available.
+              }
+            } catch(e) {
+              console.error('preRun IDBFS setup error', e);
+            }
+          }
+        ],
         postRun: [],
         print: (function() {
           return function(text) { console.log(text); };
@@ -176,14 +192,119 @@
           else spinnerElement.style.display = '';
           statusElement.textContent = text || '';
         },
-        // Optional: if CSE2.js attempts to fetch .wasm by name, this can redirect.
         locateFile: function(path) {
-          // Let default behavior handle files unless wasmBinary is provided.
           return path;
         }
       };
 
-      // Initial informative status
+      // Helper: mount IDBFS once FS is available (CSE2.js defines FS/IDBFS)
+      function ensureIDBFSMounted() {
+        if (typeof FS === 'undefined' || typeof IDBFS === 'undefined') return;
+        try {
+          if (!FS.analyzePath('/persistent').exists) {
+            FS.mkdir('/persistent');
+          }
+          // Mount IDBFS at /persistent
+          try {
+            FS.mount(IDBFS, {}, '/persistent');
+          } catch (e) {
+            // If already mounted, ignore
+          }
+
+          Module.setStatus('Loading saved data...');
+          // Load persisted files from IndexedDB to MEMFS
+          FS.syncfs(true, function(err) {
+            if (err) {
+              console.error('syncfs load error', err);
+              Module.setStatus('Failed to load saved data.');
+            } else {
+              console.log('Saved data loaded into /persistent');
+              Module.setStatus('Saved data loaded.');
+              // Optionally, create symlink from game's expected save path to /persistent
+              // e.g. if game writes to "/save", link it:
+              try {
+                if (!FS.analyzePath('/save').exists) {
+                  FS.mkdir('/save');
+                }
+              } catch(e){}
+            }
+          });
+        } catch (e) {
+          console.error('ensureIDBFSMounted error', e);
+        }
+      }
+
+      // Save function to flush MEMFS -> IDBFS (persist)
+      function persistSave(callback) {
+        if (typeof FS === 'undefined' || typeof IDBFS === 'undefined') {
+          if (callback) callback(new Error('FS/IDBFS unavailable'));
+          return;
+        }
+        Module.setStatus('Saving data...');
+        FS.syncfs(false, function(err) {
+          if (err) {
+            console.error('syncfs save error', err);
+            Module.setStatus('Failed to save data.');
+            if (callback) callback(err);
+          } else {
+            console.log('Saved to IndexedDB');
+            Module.setStatus('Saved.');
+            if (callback) callback(null);
+          }
+        });
+      }
+
+      // Download a save file (example: read a file from /persistent and download)
+      function downloadSaveFile(filepath, downloadName) {
+        try {
+          if (typeof FS === 'undefined') {
+            Module.setStatus('File system not ready');
+            return;
+          }
+          if (!FS.analyzePath(filepath).exists) {
+            Module.setStatus('No save file found: ' + filepath);
+            return;
+          }
+          var data = FS.readFile(filepath, { encoding: 'binary' });
+          var blob = new Blob([data], { type: 'application/octet-stream' });
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement('a');
+          a.href = url;
+          a.download = downloadName || 'save.dat';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+          Module.setStatus('Save downloaded');
+        } catch (e) {
+          console.error('download error', e);
+          Module.setStatus('Failed to download save');
+        }
+      }
+
+      // Import a save file (user uploads a file and we write it into /persistent)
+      function importSaveFile(file, targetPath) {
+        var reader = new FileReader();
+        reader.onload = function(evt) {
+          try {
+            var data = new Uint8Array(evt.target.result);
+            FS.writeFile(targetPath, data);
+            persistSave(function(err) {
+              if (!err) {
+                Module.setStatus('Save imported and persisted.');
+              }
+            });
+          } catch (e) {
+            console.error('import write error', e);
+            Module.setStatus('Failed to import save');
+          }
+        };
+        reader.onerror = function() {
+          Module.setStatus('Failed to read import file');
+        };
+        reader.readAsArrayBuffer(file);
+      }
+
       Module.setStatus('Drop CSE2.wasm onto this page, or click "Load WASM file"');
 
       // Work-around chromium autoplay policy
@@ -205,6 +326,19 @@
         s.async = true;
         s.onload = function() {
           Module.setStatus('Initializing...');
+          // CSE2.js defines FS/IDBFS; ensure IDBFS mounted after runtime init (onRuntimeInitialized)
+          // If FS is available immediately, mount now; otherwise wait a tick.
+          setTimeout(ensureIDBFSMounted, 200);
+          // If Emscripten runtime fires a callback, mount there as well (robust)
+          if (typeof Module['onRuntimeInitialized'] === 'function') {
+            var prev = Module.onRuntimeInitialized;
+            Module.onRuntimeInitialized = function() {
+              try { ensureIDBFSMounted(); } catch(e){}
+              prev();
+            };
+          } else {
+            Module.onRuntimeInitialized = ensureIDBFSMounted;
+          }
         };
         s.onerror = function() {
           Module.setStatus('Failed to load CSE2.js');
@@ -225,7 +359,6 @@
           var buffer = evt.target.result;
           Module.wasmBinary = new Uint8Array(buffer);
           Module.setStatus('WASM loaded locally (' + Math.round(Module.wasmBinary.length/1024) + ' KB). Starting...');
-          // Give a tiny delay so status is visible, then load CSE2
           setTimeout(loadCSE2JS, 200);
         };
         reader.onerror = function() {
@@ -269,12 +402,78 @@
           var f = fileInput.files && fileInput.files[0];
           if (f) handleWasmFile(f);
         });
+
+        // Download save
+        var downloadBtn = document.getElementById('downloadSaveBtn');
+        downloadBtn.addEventListener('click', function() {
+          // choose a typical path used for saves; adjust if your game uses other path
+          downloadSaveFile('/persistent/save.dat', 'cavestory-save.dat');
+        });
+
+        // Clear saved data (IndexedDB)
+        var clearBtn = document.getElementById('clearSaveBtn');
+        clearBtn.addEventListener('click', function() {
+          if (!confirm('Clear saved data stored in this browser?')) return;
+          try {
+            // Remove entries from IndexedDB by syncing empty folder
+            if (typeof FS !== 'undefined' && typeof IDBFS !== 'undefined') {
+              // Remove files in /persistent (if any) then sync
+              try {
+                var listing = FS.readdir('/persistent');
+                listing.forEach(function(name) {
+                  if (name === '.' || name === '..') return;
+                  try { FS.unlink('/persistent/' + name); } catch(e){}
+                });
+              } catch(e){}
+              FS.syncfs(false, function(err) {
+                if (err) {
+                  console.error('clear save error', err);
+                  Module.setStatus('Failed to clear save');
+                } else {
+                  Module.setStatus('Saved data cleared.');
+                }
+              });
+            } else {
+              Module.setStatus('File system not ready');
+            }
+          } catch(e) {
+            console.error('clear error', e);
+            Module.setStatus('Failed to clear saved data');
+          }
+        });
+
+        // Import save via hidden input
+        var importInput = document.getElementById('importSaveInput');
+        importInput.addEventListener('change', function() {
+          var file = importInput.files && importInput.files[0];
+          if (!file) return;
+          // write to /persistent/save.dat (adjust target path as needed)
+          importSaveFile(file, '/persistent/save.dat');
+        });
+
+        // Expose a simple import trigger via double-click on status (optional)
+        statusElement.addEventListener('dblclick', function() {
+          importInput.click();
+        });
       })();
 
-      // NOTE: If you want an automatic fallback to fetch a wasm file from the server
-      // (e.g. when the repo still contains CSE2.wasm), you could call loadCSE2JS()
-      // directly here. To ensure the page works without the wasm in the repo,
-      // we intentionally do NOT auto-load CSE2.js so users must provide a .wasm.
+      // Save before unload
+      window.addEventListener('beforeunload', function(e) {
+        // Attempt to persist FS synchronously-ish by issuing syncfs; note this is async,
+        // and browsers may not wait long — but it's still worth doing.
+        try {
+          if (typeof FS !== 'undefined' && typeof IDBFS !== 'undefined') {
+            // best-effort: start saving; cannot guarantee completion before unload
+            FS.syncfs(false, function(err) {
+              if (err) console.error('beforeunload save error', err);
+            });
+            Module.setStatus('Saving before exit...');
+          }
+        } catch (ex) {
+          console.error('beforeunload error', ex);
+        }
+        // No need to call preventDefault unless you want to show confirm dialog.
+      });
     </script>
 
     <!-- CSE2.js will be injected dynamically after the user provides a .wasm file -->
