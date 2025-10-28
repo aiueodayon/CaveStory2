@@ -1,62 +1,282 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Cave Story (Web Port)</title>
-  <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      background-color: #111;
-      color: #eee;
-      font-family: "Press Start 2P", monospace;
-      height: 100%;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-    }
+<!doctype html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <title>Cave Story Web</title>
+    <meta name="description" content="Cave Story (Doukutsu Monogatari) - 100% playable in your browser!">
+    <meta content="https://vinmannie.github.io/CaveStory/" property="og:url" />
+    <meta content="https://vinmannie.github.io/CaveStory/cavestory.png" property="og:image" />
+    <meta name="theme-color" content="#6f9cd6" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    h1 {
-      font-size: 14px;
-      margin-bottom: 20px;
-      text-align: center;
-    }
+    <!-- Pixel-style font -->
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 
-    iframe {
-      width: 960px;
-      height: 720px;
-      border: 2px solid #555;
-      background: #000;
-    }
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background: linear-gradient(180deg, #0a0a0a 0%, #1a1a1a 100%);
+        color: #eee;
+        font-family: 'Press Start 2P', monospace;
+        text-align: center;
+      }
 
-    button {
-      margin-top: 20px;
-      background: #333;
-      color: #eee;
-      border: 1px solid #777;
-      font-family: inherit;
-      padding: 6px 12px;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
+      h1, h4 {
+        margin: 0.5em 0;
+        text-shadow: 2px 2px 0 #000;
+      }
 
-    button:hover {
-      background: #444;
-    }
-  </style>
-  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
-</head>
-<body>
-  <h1>Cave Story (Web Port)</h1>
-  <iframe src="cave.html"></iframe>
-  <button onclick="toggleFullscreen()">Fullscreen</button>
+      h1 { color: #6f9cd6; font-size: 1.6em; }
+      h4 { color: #aaa; font-size: 0.9em; }
 
-  <script>
-    function toggleFullscreen() {
-      const iframe = document.querySelector('iframe');
-      if (iframe.requestFullscreen) iframe.requestFullscreen();
-    }
-  </script>
-</body>
+      .spinner {
+        height: 50px;
+        width: 50px;
+        margin: 20px auto;
+        animation: rotation 0.8s linear infinite;
+        border: 10px solid #0996f0;
+        border-top-color: #6400c8;
+        border-radius: 50%;
+      }
+
+      @keyframes rotation {
+        from {transform: rotate(0deg);}
+        to {transform: rotate(360deg);}
+      }
+
+      .emscripten {
+        display: block;
+        margin: 0 auto;
+      }
+
+      canvas.emscripten {
+        border: 2px solid #333;
+        background-color: black;
+        image-rendering: pixelated;
+        box-shadow: 0 0 15px rgba(255,255,255,0.1);
+        max-width: 95vw;
+      }
+
+      button {
+        background-color: #6f9cd6;
+        border: none;
+        color: white;
+        font-family: 'Press Start 2P', monospace;
+        padding: 10px 20px;
+        margin: 20px 0;
+        border-radius: 8px;
+        cursor: pointer;
+        box-shadow: 0 0 8px #6f9cd6;
+        transition: all 0.2s;
+      }
+
+      button:hover {
+        transform: scale(1.05);
+        box-shadow: 0 0 15px #9dc9ff;
+      }
+
+      .content {
+        max-width: 700px;
+        margin: 2em auto;
+        font-size: 0.7em;
+        line-height: 1.6em;
+        color: #ccc;
+      }
+
+      hr {
+        width: 60%;
+        border: 0;
+        height: 1px;
+        background: #333;
+        margin: 2em auto;
+      }
+
+      /* Drag & drop visual */
+      .drop-instructions {
+        margin: 0.6em auto;
+        font-size: 0.75em;
+        color: #bcd;
+      }
+      .dragover {
+        outline: 3px dashed #9dc9ff;
+        outline-offset: 8px;
+        box-shadow: 0 0 20px rgba(157,201,255,0.08);
+      }
+
+      @media screen and (max-width: 600px) {
+        h1 { font-size: 1.2em; }
+        h4 { font-size: 0.8em; }
+        button { font-size: 0.6em; padding: 8px 15px; }
+        .content { font-size: 0.6em; padding: 0 1em; }
+      }
+    </style>
+  </head>
+
+  <body>
+    <h1><u>Cave Story</u></h1>
+    <h4>Doukutsu Monogatari</h4>
+
+    <div id="spinner" class="spinner"></div>
+    <div class="emscripten" id="status">Downloading...</div>
+    <progress id="progress" value="0" max="100" hidden></progress>
+
+    <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()"></canvas>
+    
+    <div class="drop-instructions" id="dropInstructions">
+      Drop a CSE2.wasm file onto this page (or use "Load WASM" button) to start.<br>
+      This allows you to remove the .wasm file from the repo and run a local copy instead.
+    </div>
+
+    <button id="chooseWasmBtn">Load WASM file</button>
+    <button onclick="goFullScreen()">Go Fullscreen</button>
+
+    <input type="file" id="wasmFileInput" accept=".wasm" style="display:none" />
+
+    <hr>
+
+    <div class="content">
+      <strong>This is a modification/archive of <br>sonicresearch.org/clownacy/cave.html.</strong>
+      <p>
+        This version adds a fullscreen option and ensures compatibility
+        with modern browsers and network filters. Original port by Clownacy.
+      </p>
+    </div>
+
+    <script>
+      function goFullScreen() {
+        const canvas = document.getElementById("canvas");
+        if (canvas.requestFullscreen) canvas.requestFullscreen();
+        else if (canvas.webkitRequestFullscreen) canvas.webkitRequestFullscreen();
+        else if (canvas.mozRequestFullScreen) canvas.mozRequestFullScreen();
+      }
+
+      const statusElement = document.getElementById('status');
+      const progressElement = document.getElementById('progress');
+      const spinnerElement = document.getElementById('spinner');
+
+      // Prepare Module early so CSE2.js can pick up Module.wasmBinary if provided.
+      var Module = {
+        preRun: [],
+        postRun: [],
+        print: (function() {
+          return function(text) { console.log(text); };
+        })(),
+        printErr: function(text) { console.error(text); },
+        canvas: (function() {
+          var canvas = document.getElementById('canvas');
+          canvas.addEventListener("webglcontextlost", function(e) {
+            alert('WebGL context lost. Please reload the page.');
+            e.preventDefault();
+          }, false);
+          return canvas;
+        })(),
+        setStatus: function(text) {
+          if (!text) spinnerElement.style.display = 'none';
+          else spinnerElement.style.display = '';
+          statusElement.textContent = text || '';
+        },
+        // Optional: if CSE2.js attempts to fetch .wasm by name, this can redirect.
+        locateFile: function(path) {
+          // Let default behavior handle files unless wasmBinary is provided.
+          return path;
+        }
+      };
+
+      // Initial informative status
+      Module.setStatus('Drop CSE2.wasm onto this page, or click "Load WASM file"');
+
+      // Work-around chromium autoplay policy
+      function resumeAudio() {
+        if (Module?.SDL2?.audioContext?.state === 'suspended') {
+          Module.SDL2.audioContext.resume();
+        }
+      }
+      document.getElementById('canvas').addEventListener('click', resumeAudio);
+      document.addEventListener('keydown', resumeAudio);
+
+      // Dynamic script loader for CSE2.js: only load after wasmBinary has been set (from user file).
+      function loadCSE2JS() {
+        if (window._CSE2Loaded) return;
+        window._CSE2Loaded = true;
+        Module.setStatus('Starting...');
+        var s = document.createElement('script');
+        s.src = 'CSE2.js';
+        s.async = true;
+        s.onload = function() {
+          Module.setStatus('Initializing...');
+        };
+        s.onerror = function() {
+          Module.setStatus('Failed to load CSE2.js');
+        };
+        document.body.appendChild(s);
+      }
+
+      // Handle dropped or selected wasm file
+      function handleWasmFile(file) {
+        if (!file) return;
+        if (!file.name.toLowerCase().endsWith('.wasm')) {
+          Module.setStatus('Please provide a .wasm file (CSE2.wasm).');
+          return;
+        }
+        Module.setStatus('Reading ' + file.name + '...');
+        var reader = new FileReader();
+        reader.onload = function(evt) {
+          var buffer = evt.target.result;
+          Module.wasmBinary = new Uint8Array(buffer);
+          Module.setStatus('WASM loaded locally (' + Math.round(Module.wasmBinary.length/1024) + ' KB). Starting...');
+          // Give a tiny delay so status is visible, then load CSE2
+          setTimeout(loadCSE2JS, 200);
+        };
+        reader.onerror = function() {
+          Module.setStatus('Failed to read file.');
+        };
+        reader.readAsArrayBuffer(file);
+      }
+
+      // Drag & Drop wiring
+      (function() {
+        var dropArea = document.body;
+        function preventDefault(e) { e.preventDefault(); e.stopPropagation(); }
+
+        ['dragenter','dragover','dragleave','drop'].forEach(function(evt) {
+          dropArea.addEventListener(evt, preventDefault, false);
+        });
+
+        dropArea.addEventListener('dragover', function(e) {
+          dropArea.classList.add('dragover');
+          Module.setStatus('Drop .wasm file to start');
+        });
+
+        dropArea.addEventListener('dragleave', function(e) {
+          dropArea.classList.remove('dragover');
+          Module.setStatus('Awaiting WASM file');
+        });
+
+        dropArea.addEventListener('drop', function(e) {
+          dropArea.classList.remove('dragover');
+          var dt = e.dataTransfer;
+          if (!dt) return;
+          var file = dt.files && dt.files[0];
+          if (file) handleWasmFile(file);
+        });
+
+        // File chooser
+        var chooseBtn = document.getElementById('chooseWasmBtn');
+        var fileInput = document.getElementById('wasmFileInput');
+        chooseBtn.addEventListener('click', function() { fileInput.click(); });
+        fileInput.addEventListener('change', function() {
+          var f = fileInput.files && fileInput.files[0];
+          if (f) handleWasmFile(f);
+        });
+      })();
+
+      // NOTE: If you want an automatic fallback to fetch a wasm file from the server
+      // (e.g. when the repo still contains CSE2.wasm), you could call loadCSE2JS()
+      // directly here. To ensure the page works without the wasm in the repo,
+      // we intentionally do NOT auto-load CSE2.js so users must provide a .wasm.
+    </script>
+
+    <!-- CSE2.js will be injected dynamically after the user provides a .wasm file -->
+  </body>
 </html>
